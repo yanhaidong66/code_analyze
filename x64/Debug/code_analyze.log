@@ -1,0 +1,7 @@
+﻿  code_compiler.cpp
+C:\Users\hd\Desktop\code_analyze\code_compiler.cpp(7,17): error C2061: 语法错误: 标识符“HashTable”
+C:\Users\hd\Desktop\code_analyze\code_compiler.cpp(16,40): error C2761: “bool codeCompiler::codeFetch(void)”: 不允许重新声明成员
+C:\Users\hd\Desktop\code_analyze\code_compiler.cpp(16,30): error C2065: “HashTable”: 未声明的标识符
+C:\Users\hd\Desktop\code_analyze\code_compiler.cpp(16,40): error C2146: 语法错误: 缺少“)”(在标识符“hashTable”的前面)
+C:\Users\hd\Desktop\code_analyze\code_compiler.cpp(17,1): error C2143: 语法错误: 缺少“;”(在“{”的前面)
+C:\Users\hd\Desktop\code_analyze\code_compiler.cpp(17,1): error C2447: “{”: 缺少函数标题(是否是老式的形式表?)
