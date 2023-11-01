@@ -1,194 +1,173 @@
-#include<string>
-#include<iostream>
-using namespace std;
-class HashTable {
+#include"HashTable.cpp"
+#include<shared_mutex>
+#include<thread>
+class HashMap {
 private:
-	typedef struct pair {
-		string key;
-		int value;
-	}pair;
-	typedef struct vNode {
-		bool isEmpty;
-		pair p;
-		struct vNode* next;
-	}vNode;
-
-	vNode** table;//Ö¸ÕëÊý×é
-	vNode** table1;
-	int buketSize;
-	int valueAmount;
-	bool init1(int bs);
-	bool put1(string k, int v);
-
-	
+	HashTable* table[2];
+	HashTable* usingTable;
+	volatile int usingTableId;
+	shared_mutex rwLock;
+	const double rehashFactor = 0.8;
+	const double growth = 1.5;
+	volatile bool rehashing = false;
 public:
-	HashTable();
-	bool put(string k, int v);
-	bool delet(string k);
-	bool isContain(string k);
-	int getValue(string k);
-	int getAll(string k[], int v[]);
-	int hash(const string k);
-	bool init(int bs);
-	bool rehash(int newBucketSize);
-	
+	HashMap();
+	bool changeUsingTable(HashTable* newTable);
+	bool rehash();
+	int get(string key);
+	int put(string key, int value);
+	int delet(string key);
+	int getAll(string* key, int* value,int arraySize);
+	bool init(int bucketSize);
+	int getKeyAmount();
+	int getBucketAmount();
+	HashTable* createTable(int bucketSize,string keys[],int value[],int pairAmount);
+	HashTable* getUsingTable();
 };
 
-HashTable::HashTable()
-{
+HashMap::HashMap() {
+	
 	init(10);
 }
 
-bool HashTable::rehash(int newBucketSize) {
-	init1(newBucketSize);
-
+HashTable* HashMap::createTable(int bucketSize,string keys[],int values[],int pairAmount) {
+	HashTable* r = new HashTable(bucketSize);
+	for (int i = 0; i < pairAmount; i++) {
+		r->put(keys[i], values[i]);
+	}
+	return r;
 
 }
-bool HashTable::put(string k, int v)
+bool HashMap::changeUsingTable(HashTable* newTable)
 {
-	int position = hash(k);
-	vNode* ptr = table[position];
-	if (ptr->isEmpty == false) {
-		if (ptr->p.key == k) {
-			ptr->p.value += v;
-			return true;
-		}
-		while (ptr->next != NULL) {
-			if (ptr->p.key == k) {
-				ptr->p.value += v;
-				return true;
-			}
-			else {
-				ptr = ptr->next;
-			}
-		}
-		vNode* listNode = (vNode*)calloc(1, sizeof(vNode));
-		if (listNode == NULL)
-			return false;
-		listNode->isEmpty = false;
-		(string)listNode->p.key = k.substr(0);
-		listNode->p.value = v;
-		ptr->next = listNode;
-		listNode->next = NULL;
+	std::unique_lock<std::shared_mutex> writeLock(rwLock);
+	if (usingTableId == 0) {
+		delete(table[1]);
+		table[1] = newTable;
+		usingTable = table[1];
 	}
 	else {
-		ptr->isEmpty = false;
-		ptr->p.key = k.substr(0);
-		ptr->p.value = v;
+		delete(table[0]);
+		table[0] = newTable;
+		usingTable = table[0];
 	}
-	valueAmount++;
 	return true;
 }
 
-bool HashTable::delet(string k)
+HashTable* HashMap::getUsingTable() {
+	std::shared_lock<std::shared_mutex> readLock(rwLock);
+	return usingTable;
+}
+
+bool HashMap::rehash()
 {
-	int position = hash(k);
-	vNode* ptr = table[position];
-	if (ptr->next == NULL)
-		ptr->isEmpty = true;
-	else {
-		while (ptr->next!=NULL&&ptr->next->p.key != k)
-				ptr = ptr->next;
-		ptr->next = ptr->next->next;
-	}
+	cout << "rehashing";
+	rehashing = true;
+	int valueAmount = usingTable->getValueAmount();
+	int bucketAmount = usingTable->getBucketSize();
+	string* keys = new string[valueAmount];
+	int* values = new int[valueAmount];
+	getUsingTable()->getAll(keys, values, valueAmount);
+	HashTable* newTable = createTable((int)(valueAmount * growth), keys, values, valueAmount);
+	changeUsingTable(newTable);
+	rehashing = false;
+	delete[] keys;
+	delete[] values;
+	return true;
+}
+
+int HashMap::get(string key)
+{
+	return getUsingTable()->getValue(key);
 	
+}
+
+int HashMap::put(string key, int value)
+{
+	if (rehashing==false&&getUsingTable()->getFillFactor() - rehashFactor >= 0.00001) {
+		rehashing = true;
+		thread rehashThread(&HashMap::rehash,this);
+		rehashThread.detach();
+	}
+	getUsingTable()->put(key, value);
+	/*cout << "bucketAmount:" << getBucketAmount();
+	cout << "          factor:" << getUsingTable()->getFillFactor();
+	cout << "        keyAmount:" << getKeyAmount() << endl;*/
+	/*string* s = new string[20];
+	int* t = new int[20];
+	int num=getUsingTable()->getAll(s, t, 20);
+	cout << "--------------------" << endl;
+	for (int i = 0; i < num; i++) {
+		cout <<"k:"<< s[i]<<"       v:" << t[i] << endl;
+	}*/
+	return 1;
+}
+
+int HashMap::delet(string key)
+{
+	return getUsingTable()->delet(key);
+	
+}
+
+int HashMap::getAll(string* key, int* value,int arraySize)
+{
+	int num=getUsingTable()->getAll(key, value,arraySize);
+	return num;
+}
+
+bool HashMap::init(int bucketSize) {
+	table[0] = new HashTable(10);
+	table[1] = new HashTable(10);
+	table[0]->init(bucketSize);
+	usingTableId = 0;
+	usingTable = table[0];
 	return true;
 }
 
-bool HashTable::isContain(string k)
+int HashMap::getKeyAmount()
 {
-	int position = hash(k);
-	vNode* ptr = table[position];
-	if(ptr->next==NULL)
-		return ptr->isEmpty;
-	else {
-		while (ptr!=NULL && ptr->p.key != k)
-			ptr = ptr->next;
-		if (ptr == NULL)
-			return false;
-		else
-			return true;
-	}
+	return getUsingTable()->getValueAmount();
 }
 
-int HashTable::getValue(string k)
+int HashMap::getBucketAmount()
 {
-	int position = hash(k);
-	vNode* ptr = table[position];
-	if (ptr->isEmpty == true)
-		return 0;
-	while (ptr!=NULL && ptr->p.key != k)
-		ptr = ptr->next;
-	return ptr->p.value;
-
-}
-
-int HashTable::getAll(string k[],int v[])
-{
-	int pairSize = 0;
-	for (int i = 0; i < buketSize; i++) {
-		vNode* ptr = table[i];
-		if (ptr->isEmpty == true)
-			continue;
-		else {
-			while ((ptr->next) != NULL) {
-				k[pairSize] = ptr->p.key;
-				v[pairSize] = ptr->p.value;
-				pairSize++;
-				ptr = ptr->next;
-			}
-			k[pairSize] = ptr->p.key;
-			v[pairSize] = ptr->p.value;
-			pairSize++;
-		}
-	}
-	return valueAmount;
-}
-
-
-
-int HashTable::hash(const string k)
-{
-	const char* ck = k.c_str();
-	unsigned int v=0;
-	while (*ck != '\0') {
-		v = (v << 5) + *ck;
-		ck++;
-	}
-	return v % buketSize;
-}
-
-bool HashTable::init(int bs)
-{
-	vNode** newTable = (vNode**)calloc(bs, sizeof(vNode*));
-	for (int i = 0; i < bs; i++) {
-		newTable[i] = (vNode*)calloc(1, sizeof(vNode));
-		newTable[i]->isEmpty = true;
-		newTable[i]->next = NULL;
-	}
-	if (newTable == NULL)
-		return false;
-	table = newTable;
-	buketSize = bs;
-	valueAmount = 0;
-	return true;
+	return getUsingTable()->getBucketSize();
 }
 
 int main() {
-	HashTable* ht = new HashTable();
-	ht->put("haidong", 3);
-	ht->put("haidong", 2);
-	ht->put("ewbnr", 23);
-	ht->put("wenb23", 23);
-	ht->put("hh", 2);
-	ht->put("df", 2);
-	ht->put("weu4r", 5);
-	string s[20];
-	int v[20];
-	int si=ht->getAll(s, v);
+	HashMap* ht = new HashMap();
+	ht->put("1", 1);
+	ht->put("2", 2);
+	ht->put("3", 3);
+	ht->put("4", 4);
+	ht->put("5", 5);
+	ht->put("6", 6);
+	string s[29];
+	int v[29];
+	ht->put("7", 7);
+	ht->put("8", 8);
+	ht->put("9", 9);
+	ht->put("10", 10);
+	ht->put("11", 11);
+	ht->put("12", 12);
+	ht->put("13", 13);
+	ht->put("14", 14);
+	ht->put("15", 15);
+	ht->put("16", 16);
+	ht->put("17", 17);
+	ht->put("18", 18);
+	ht->put("19", 19);
+	ht->put("20", 20);
+	ht->put("21", 21);
+	ht->put("22", 22);
+	/*int si = ht->getAll(s, v, ht->getKeyAmount());
+	cout << "-------------" << endl;
 	for (int i = 0; i < si; i++) {
-		cout<<"k:" << s[i];
-		cout <<"         v:" << v[i]<<endl;
-	}
+		cout << " k:" << s[i];
+		cout << "         v:" << v[i];
+		cout << "       bucketAmount:" << ht->getBucketAmount();
+		cout << "          factor:" << ht->getUsingTable()->getFillFactor();
+		cout << "        keyAmount:" << ht->getKeyAmount() << endl;
+	}*/
 
 }
